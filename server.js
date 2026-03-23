@@ -165,6 +165,15 @@ function cleanupJobFile(job) {
   job.filePath = null;
 }
 
+function cleanupTempFiles(prefix) {
+  const files = fs.readdirSync(TEMP_DIR).filter(file => file.startsWith(prefix));
+  for (const file of files) {
+    try {
+      fs.unlinkSync(path.join(TEMP_DIR, file));
+    } catch {}
+  }
+}
+
 function markJobCancelled(job) {
   job.cancelled = true;
   job.status = 'cancelled';
@@ -255,16 +264,7 @@ function extractFormats(formats) {
   };
 }
 
-app.post('/api/download', (req, res) => {
-  const { url, audioOnly, videoFormat, videoQuality, audioFormat, audioQuality, title } = req.body;
-
-  if (!url) {
-    return res.status(400).json({ error: 'URL is required' });
-  }
-
-  const id = uuidv4();
-  const job = createDownloadJob(id);
-  const outputTemplate = path.join(TEMP_DIR, `${id}.%(ext)s`);
+function buildDownloadArgs({ url, audioOnly, videoFormat, videoQuality, audioFormat, audioQuality, outputTemplate }, relaxedVideoSelection = false) {
   const args = ['--no-playlist', '--no-warnings', '--newline'];
   const ffmpegBinary = getFfmpegBinary();
 
@@ -281,13 +281,14 @@ app.post('/api/download', (req, res) => {
       args.push('--audio-quality', '0');
     }
   } else {
-    // Video download
     if (videoQuality && videoQuality !== 'best') {
-      const formatStr = [
-        `bestvideo*[height<=${videoQuality}]+bestaudio`,
-        `best[height<=${videoQuality}]`,
-        'best',
-      ].join('/');
+      const formatStr = relaxedVideoSelection
+        ? `bv*+ba/b[height<=${videoQuality}]/b`
+        : [
+            `bestvideo*[height<=${videoQuality}]+bestaudio`,
+            `best[height<=${videoQuality}]`,
+            'best',
+          ].join('/');
       args.push('-f', formatStr);
     }
 
@@ -297,20 +298,26 @@ app.post('/api/download', (req, res) => {
 
   args.push('-o', outputTemplate);
   args.push(url);
+  return args;
+}
 
-  let proc;
-  try {
-    proc = spawnYtDlp(args);
-  } catch (err) {
-    downloadJobs.delete(id);
-    return res.status(500).json({ error: err.message });
+function shouldRetryWithRelaxedSelector(stderr, audioOnly, relaxedVideoSelection) {
+  if (audioOnly || relaxedVideoSelection) {
+    return false;
   }
 
-  job.status = 'starting';
-  job.title = title || null;
-  job.proc = proc;
+  return /Requested format is not available/i.test(stderr || '');
+}
 
+function attachDownloadProcess(job, request, relaxedVideoSelection = false) {
+  const args = buildDownloadArgs(request, relaxedVideoSelection);
+  const proc = spawnYtDlp(args);
   let stderr = '';
+
+  job.status = 'starting';
+  job.phase = relaxedVideoSelection ? 'Retrying with compatible format' : 'Preparing download';
+  job.error = null;
+  job.proc = proc;
 
   const handleProgressChunk = (chunk) => {
     const text = chunk.toString();
@@ -325,23 +332,34 @@ app.post('/api/download', (req, res) => {
   proc.stdout.on('data', handleProgressChunk);
   proc.stderr.on('data', handleProgressChunk);
 
-  res.json({ jobId: id });
-
   proc.on('close', (code) => {
     job.proc = null;
 
     if (job.cancelled) {
       cleanupJobFile(job);
+      cleanupTempFiles(job.id);
       return;
     }
 
     if (code !== 0) {
+      if (shouldRetryWithRelaxedSelector(stderr, request.audioOnly, relaxedVideoSelection)) {
+        cleanupTempFiles(job.id);
+        try {
+          attachDownloadProcess(job, request, true);
+          return;
+        } catch (err) {
+          job.status = 'error';
+          job.error = err.message;
+          return;
+        }
+      }
+
       job.status = 'error';
       job.error = stderr || 'Download failed';
       return;
     }
 
-    const files = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(id));
+    const files = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(job.id));
     if (files.length === 0) {
       job.status = 'error';
       job.error = 'Downloaded file not found';
@@ -352,7 +370,7 @@ app.post('/api/download', (req, res) => {
     const ext = path.extname(files[0]);
     const contentType = getContentType(ext);
 
-    let safeTitle = (title || 'download')
+    let safeTitle = (request.title || 'download')
       .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
       .replace(/\s+/g, ' ')
       .trim()
@@ -375,6 +393,29 @@ app.post('/api/download', (req, res) => {
     job.status = 'error';
     job.error = 'yt-dlp could not be started';
   });
+}
+
+app.post('/api/download', (req, res) => {
+  const { url, audioOnly, videoFormat, videoQuality, audioFormat, audioQuality, title } = req.body;
+
+  if (!url) {
+    return res.status(400).json({ error: 'URL is required' });
+  }
+
+  const id = uuidv4();
+  const job = createDownloadJob(id);
+  const outputTemplate = path.join(TEMP_DIR, `${id}.%(ext)s`);
+  const request = { url, audioOnly, videoFormat, videoQuality, audioFormat, audioQuality, title, outputTemplate };
+
+  try {
+    attachDownloadProcess(job, request);
+  } catch (err) {
+    downloadJobs.delete(id);
+    return res.status(500).json({ error: err.message });
+  }
+  job.title = title || null;
+
+  res.json({ jobId: id });
 });
 
 app.get('/api/download/:id/status', (req, res) => {
