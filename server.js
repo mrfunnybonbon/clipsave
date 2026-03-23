@@ -19,6 +19,10 @@ const TEMP_DIR = path.join(os.tmpdir(), 'yt-dlp-downloads');
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
+const COOKIES_PATH = path.join(TEMP_DIR, 'youtube-cookies.txt');
+if (process.env.YTDLP_COOKIES) {
+  fs.writeFileSync(COOKIES_PATH, process.env.YTDLP_COOKIES, 'utf8');
+}
 const downloadJobs = new Map();
 
 function isExecutable(filePath) {
@@ -79,7 +83,11 @@ function spawnYtDlp(args) {
     throw new Error('yt-dlp not found. Install yt-dlp or set YT_DLP_PATH.');
   }
 
-  return spawn(ytDlp.command, [...ytDlp.argsPrefix, ...args], {
+  const finalArgs = process.env.YTDLP_COOKIES
+    ? ['--cookies', COOKIES_PATH, ...args]
+    : args;
+
+  return spawn(ytDlp.command, [...ytDlp.argsPrefix, ...finalArgs], {
     env: {
       ...process.env,
       PATH: [
