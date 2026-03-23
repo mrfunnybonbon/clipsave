@@ -266,13 +266,40 @@ function extractFormats(formats) {
   };
 }
 
-function buildDownloadArgs({ url, audioOnly, videoFormat, videoQuality, audioFormat, audioQuality, outputTemplate }, selectorMode = 'requested') {
+function buildProgressiveSelector(videoQuality) {
+  if (videoQuality && videoQuality !== 'best') {
+    return `best[height<=${videoQuality}][vcodec!=none][acodec!=none]/best[height<=${videoQuality}]/best`;
+  }
+
+  return 'best[vcodec!=none][acodec!=none]/best';
+}
+
+function getVideoSelectors(videoQuality, hasFfmpeg) {
+  const selectors = [];
+  const progressiveSelector = buildProgressiveSelector(videoQuality);
+
+  selectors.push(progressiveSelector);
+
+  if (hasFfmpeg) {
+    if (videoQuality && videoQuality !== 'best') {
+      selectors.push(`bestvideo[height<=${videoQuality}]+bestaudio/best[height<=${videoQuality}]/best`);
+    }
+    selectors.push('bestvideo+bestaudio/best');
+  }
+
+  selectors.push('best');
+  return [...new Set(selectors)];
+}
+
+function buildDownloadArgs({ url, audioOnly, videoFormat, videoQuality, audioFormat, audioQuality, outputTemplate }, selector) {
   const args = ['--no-playlist', '--no-warnings', '--newline'];
   const ffmpegBinary = getFfmpegBinary();
 
   if (ffmpegBinary) {
     args.push('--ffmpeg-location', path.dirname(ffmpegBinary));
   }
+
+  args.push('--extractor-args', 'youtube:player_client=android_vr,web');
 
   if (audioOnly) {
     args.push('-x');
@@ -283,24 +310,8 @@ function buildDownloadArgs({ url, audioOnly, videoFormat, videoQuality, audioFor
       args.push('--audio-quality', '0');
     }
   } else {
-    let formatStr = null;
-
-    if (selectorMode === 'best') {
-      formatStr = 'best';
-    } else if (selectorMode === 'compatible') {
-      formatStr = videoQuality && videoQuality !== 'best'
-        ? `bv*+ba/b[height<=${videoQuality}]/b`
-        : 'bv*+ba/b';
-    } else if (videoQuality && videoQuality !== 'best') {
-      formatStr = [
-        `bestvideo*[height<=${videoQuality}]+bestaudio`,
-        `best[height<=${videoQuality}]`,
-        'best',
-      ].join('/');
-    }
-
-    if (formatStr) {
-      args.push('-f', formatStr);
+    if (selector) {
+      args.push('-f', selector);
     }
 
     const vFormat = videoFormat || 'mp4';
@@ -320,23 +331,16 @@ function shouldRetryWithDifferentSelector(stderr, audioOnly) {
   return /(Requested format is not available|requested format not available|format specification)/i.test(stderr || '');
 }
 
-function getNextSelectorMode(selectorMode) {
-  if (selectorMode === 'requested') return 'compatible';
-  if (selectorMode === 'compatible') return 'best';
-  return null;
-}
-
-function attachDownloadProcess(job, request, selectorMode = 'requested') {
-  const args = buildDownloadArgs(request, selectorMode);
+function attachDownloadProcess(job, request, selectorIndex = 0) {
+  const hasFfmpeg = Boolean(getFfmpegBinary());
+  const selectors = request.audioOnly ? [null] : getVideoSelectors(request.videoQuality, hasFfmpeg);
+  const selector = selectors[Math.min(selectorIndex, selectors.length - 1)];
+  const args = buildDownloadArgs(request, selector);
   const proc = spawnYtDlp(args);
   let stderr = '';
 
   job.status = 'starting';
-  job.phase = selectorMode === 'requested'
-    ? 'Preparing download'
-    : selectorMode === 'compatible'
-      ? 'Retrying with compatible format'
-      : 'Retrying with best available format';
+  job.phase = selectorIndex === 0 ? 'Preparing download' : `Retrying download (${selectorIndex + 1}/${selectors.length})`;
   job.error = null;
   job.proc = proc;
 
@@ -365,10 +369,10 @@ function attachDownloadProcess(job, request, selectorMode = 'requested') {
     if (code !== 0) {
       if (shouldRetryWithDifferentSelector(stderr, request.audioOnly)) {
         cleanupTempFiles(job.id);
-        const nextSelectorMode = getNextSelectorMode(selectorMode);
-        if (nextSelectorMode) {
+        const nextSelectorIndex = selectorIndex + 1;
+        if (nextSelectorIndex < selectors.length) {
           try {
-            attachDownloadProcess(job, request, nextSelectorMode);
+            attachDownloadProcess(job, request, nextSelectorIndex);
             return;
           } catch (err) {
             job.status = 'error';
