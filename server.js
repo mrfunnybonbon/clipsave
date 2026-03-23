@@ -284,9 +284,14 @@ app.post('/api/download', (req, res) => {
     // Video download
     let formatStr = '';
     if (videoQuality && videoQuality !== 'best') {
-      formatStr = `bestvideo*[height<=${videoQuality}]+bestaudio/best*[height<=${videoQuality}]/best[height<=${videoQuality}]`;
+      formatStr = [
+        `bestvideo*[height<=${videoQuality}]+bestaudio/best*[height<=${videoQuality}]`,
+        `bestvideo+bestaudio/best[height<=${videoQuality}]`,
+        'bestvideo+bestaudio',
+        'best',
+      ].join('/');
     } else {
-      formatStr = 'bestvideo*+bestaudio/best';
+      formatStr = 'bestvideo+bestaudio/best';
     }
     args.push('-f', formatStr);
 
