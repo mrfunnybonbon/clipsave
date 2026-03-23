@@ -282,18 +282,14 @@ app.post('/api/download', (req, res) => {
     }
   } else {
     // Video download
-    let formatStr = '';
     if (videoQuality && videoQuality !== 'best') {
-      formatStr = [
-        `bestvideo*[height<=${videoQuality}]+bestaudio/best*[height<=${videoQuality}]`,
-        `bestvideo+bestaudio/best[height<=${videoQuality}]`,
-        'bestvideo+bestaudio',
+      const formatStr = [
+        `bestvideo*[height<=${videoQuality}]+bestaudio`,
+        `best[height<=${videoQuality}]`,
         'best',
       ].join('/');
-    } else {
-      formatStr = 'bestvideo+bestaudio/best';
+      args.push('-f', formatStr);
     }
-    args.push('-f', formatStr);
 
     const vFormat = videoFormat || 'mp4';
     args.push('--merge-output-format', vFormat);
