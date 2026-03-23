@@ -111,6 +111,16 @@ function safeDecodeFilename(value) {
   }
 }
 
+function isHttpUrl(value) {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value, window.location.origin);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function resetUI() {
   videoCard.classList.add('hidden');
   optionsPanel.classList.add('hidden');
@@ -213,7 +223,12 @@ async function triggerCompletedDownload(jobId) {
     throw new Error(checkData.error || 'Failed to fetch completed file');
   }
 
-  downloadFrame.src = `/api/download/${jobId}/file?ts=${Date.now()}`;
+  const downloadUrl = `/api/download/${jobId}/file?ts=${Date.now()}`;
+  try {
+    downloadFrame.src = downloadUrl;
+  } catch {
+    window.location.assign(downloadUrl);
+  }
 }
 
 function formatViews(count) {
@@ -273,7 +288,11 @@ async function fetchVideoInfo() {
 
 function renderVideoInfo(info) {
   // Thumbnail
-  videoThumb.src = info.thumbnail || '';
+  if (isHttpUrl(info.thumbnail)) {
+    videoThumb.src = info.thumbnail;
+  } else {
+    videoThumb.removeAttribute('src');
+  }
   videoThumb.alt = info.title;
 
   // Duration

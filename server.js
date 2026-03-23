@@ -193,6 +193,8 @@ app.post('/api/info', (req, res) => {
 
   const args = [
     '--dump-json',
+    '--skip-download',
+    '--no-check-formats',
     '--no-playlist',
     '--no-warnings',
     url
@@ -236,7 +238,7 @@ app.post('/api/info', (req, res) => {
       };
       res.json(response);
     } catch (e) {
-      res.status(500).json({ error: 'Failed to parse video info' });
+      res.status(500).json({ error: stderr || 'Failed to parse video info' });
     }
   });
 
