@@ -8,7 +8,7 @@ const os = require('os');
 const { accessSync, constants } = require('fs');
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -481,6 +481,6 @@ function getContentType(ext) {
   return types[ext.toLowerCase()] || 'application/octet-stream';
 }
 
-app.listen(PORT, () => {
-  console.log(`\n  yt-dlp Downloader running at http://localhost:${PORT}\n`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n  yt-dlp Downloader running on 0.0.0.0:${PORT}\n`);
 });
