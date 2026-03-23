@@ -266,7 +266,7 @@ function extractFormats(formats) {
   };
 }
 
-function buildDownloadArgs({ url, audioOnly, videoFormat, videoQuality, audioFormat, audioQuality, outputTemplate }, relaxedVideoSelection = false) {
+function buildDownloadArgs({ url, audioOnly, videoFormat, videoQuality, audioFormat, audioQuality, outputTemplate }, selectorMode = 'requested') {
   const args = ['--no-playlist', '--no-warnings', '--newline'];
   const ffmpegBinary = getFfmpegBinary();
 
@@ -283,14 +283,23 @@ function buildDownloadArgs({ url, audioOnly, videoFormat, videoQuality, audioFor
       args.push('--audio-quality', '0');
     }
   } else {
-    if (videoQuality && videoQuality !== 'best') {
-      const formatStr = relaxedVideoSelection
+    let formatStr = null;
+
+    if (selectorMode === 'best') {
+      formatStr = 'best';
+    } else if (selectorMode === 'compatible') {
+      formatStr = videoQuality && videoQuality !== 'best'
         ? `bv*+ba/b[height<=${videoQuality}]/b`
-        : [
-            `bestvideo*[height<=${videoQuality}]+bestaudio`,
-            `best[height<=${videoQuality}]`,
-            'best',
-          ].join('/');
+        : 'bv*+ba/b';
+    } else if (videoQuality && videoQuality !== 'best') {
+      formatStr = [
+        `bestvideo*[height<=${videoQuality}]+bestaudio`,
+        `best[height<=${videoQuality}]`,
+        'best',
+      ].join('/');
+    }
+
+    if (formatStr) {
       args.push('-f', formatStr);
     }
 
@@ -303,21 +312,31 @@ function buildDownloadArgs({ url, audioOnly, videoFormat, videoQuality, audioFor
   return args;
 }
 
-function shouldRetryWithRelaxedSelector(stderr, audioOnly, relaxedVideoSelection) {
-  if (audioOnly || relaxedVideoSelection) {
+function shouldRetryWithDifferentSelector(stderr, audioOnly) {
+  if (audioOnly) {
     return false;
   }
 
-  return /Requested format is not available/i.test(stderr || '');
+  return /(Requested format is not available|requested format not available|format specification)/i.test(stderr || '');
 }
 
-function attachDownloadProcess(job, request, relaxedVideoSelection = false) {
-  const args = buildDownloadArgs(request, relaxedVideoSelection);
+function getNextSelectorMode(selectorMode) {
+  if (selectorMode === 'requested') return 'compatible';
+  if (selectorMode === 'compatible') return 'best';
+  return null;
+}
+
+function attachDownloadProcess(job, request, selectorMode = 'requested') {
+  const args = buildDownloadArgs(request, selectorMode);
   const proc = spawnYtDlp(args);
   let stderr = '';
 
   job.status = 'starting';
-  job.phase = relaxedVideoSelection ? 'Retrying with compatible format' : 'Preparing download';
+  job.phase = selectorMode === 'requested'
+    ? 'Preparing download'
+    : selectorMode === 'compatible'
+      ? 'Retrying with compatible format'
+      : 'Retrying with best available format';
   job.error = null;
   job.proc = proc;
 
@@ -344,15 +363,18 @@ function attachDownloadProcess(job, request, relaxedVideoSelection = false) {
     }
 
     if (code !== 0) {
-      if (shouldRetryWithRelaxedSelector(stderr, request.audioOnly, relaxedVideoSelection)) {
+      if (shouldRetryWithDifferentSelector(stderr, request.audioOnly)) {
         cleanupTempFiles(job.id);
-        try {
-          attachDownloadProcess(job, request, true);
-          return;
-        } catch (err) {
-          job.status = 'error';
-          job.error = err.message;
-          return;
+        const nextSelectorMode = getNextSelectorMode(selectorMode);
+        if (nextSelectorMode) {
+          try {
+            attachDownloadProcess(job, request, nextSelectorMode);
+            return;
+          } catch (err) {
+            job.status = 'error';
+            job.error = err.message;
+            return;
+          }
         }
       }
 
