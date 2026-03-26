@@ -21,6 +21,10 @@
   --accent-hover: rgba(255, 255, 255, 0.12);
   --danger: #ff4444;
   --success: #44ff88;
+  --youtube: #ff0000;
+  --tiktok: #00f2fe;
+  --instagram: #e1306c;
+  --twitter: #ffffff;
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 18px;
@@ -243,6 +247,36 @@ body::before {
 .input-wrapper:has(#url-input:not(:placeholder-shown)) .clear-btn {
   opacity: 1;
 }
+
+/* ===== PLATFORM BADGES ===== */
+.platform-badges {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 18px;
+  opacity: 0;
+  animation: fadeIn 0.8s var(--ease-out) 0.3s both;
+}
+
+.platform-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--text-muted);
+  transition: color 0.3s var(--ease-smooth), transform 0.3s var(--ease-smooth);
+}
+
+.platform-badge:hover {
+  transform: translateY(-2px);
+}
+
+.platform-badge.youtube:hover { color: var(--youtube); }
+.platform-badge.tiktok:hover { color: var(--tiktok); }
+.platform-badge.instagram:hover { color: var(--instagram); }
+.platform-badge.twitter:hover { color: var(--twitter); }
 
 /* ===== BUTTONS ===== */
 .btn {
@@ -500,6 +534,40 @@ body::before {
   height: 14px;
   opacity: 0.6;
 }
+
+/* Platform Indicator on Card */
+.platform-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: var(--bg-input);
+  width: fit-content;
+  border: 1px solid var(--border);
+  display: none; /* hidden by default, shown via JS */
+}
+
+.platform-indicator.is-visible {
+  display: flex;
+}
+
+.platform-badge-small {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+
+.platform-indicator.youtube { color: var(--youtube); border-color: rgba(255, 0, 0, 0.2); background: rgba(255, 0, 0, 0.05); }
+.platform-indicator.tiktok { color: var(--tiktok); border-color: rgba(0, 242, 254, 0.2); background: rgba(0, 242, 254, 0.05); }
+.platform-indicator.instagram { color: var(--instagram); border-color: rgba(225, 48, 108, 0.2); background: rgba(225, 48, 108, 0.05); }
+.platform-indicator.twitter { color: var(--twitter); border-color: rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.05); }
+.platform-indicator.unknown { color: var(--text-secondary); }
 
 /* ===== OPTIONS PANEL ===== */
 .options-panel {

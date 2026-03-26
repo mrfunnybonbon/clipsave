@@ -16,4 +16,7 @@ COPY . .
 ENV PORT=10000
 EXPOSE 10000
 
-CMD ["node", "server.js"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:10000/api/health || exit 1
+
+CMD ["npm", "start"]

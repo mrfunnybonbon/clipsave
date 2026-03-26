@@ -14,6 +14,11 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 // Temp directory for downloads
 const TEMP_DIR = path.join(os.tmpdir(), 'yt-dlp-downloads');
 if (!fs.existsSync(TEMP_DIR)) {
@@ -183,6 +188,20 @@ function markJobCancelled(job) {
   job.speed = null;
 }
 
+function detectPlatform(url) {
+  if (!url) return 'unknown';
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    
+    if (host.includes('youtube.com') || host.includes('youtu.be')) return 'youtube';
+    if (host.includes('tiktok.com')) return 'tiktok';
+    if (host.includes('instagram.com')) return 'instagram';
+    if (host.includes('twitter.com') || host.includes('x.com')) return 'twitter';
+  } catch {}
+  return 'unknown';
+}
+
 // Fetch video info
 app.post('/api/info', (req, res) => {
   const { url } = req.body;
@@ -191,14 +210,21 @@ app.post('/api/info', (req, res) => {
     return res.status(400).json({ error: 'URL is required' });
   }
 
+  const platform = detectPlatform(url);
+
   const args = [
     '--dump-json',
     '--skip-download',
     '--no-check-formats',
     '--no-playlist',
-    '--no-warnings',
-    url
+    '--no-warnings'
   ];
+
+  if (platform === 'youtube') {
+    args.push('--extractor-args', 'youtube:player_client=android_vr,web');
+  }
+
+  args.push(url);
 
   let proc;
   try {
@@ -231,10 +257,11 @@ app.post('/api/info', (req, res) => {
         duration: info.duration,
         duration_string: info.duration_string,
         uploader: info.uploader || info.channel,
-        view_count: info.view_count,
+        view_count: info.view_count || null,
         upload_date: info.upload_date,
         description: info.description ? info.description.substring(0, 200) : '',
         formats: extractFormats(info.formats || []),
+        platform: platform,
       };
       res.json(response);
     } catch (e) {
@@ -294,12 +321,15 @@ function getVideoSelectors(videoQuality, hasFfmpeg) {
 function buildDownloadArgs({ url, audioOnly, videoFormat, videoQuality, audioFormat, audioQuality, outputTemplate }, selector) {
   const args = ['--no-playlist', '--no-warnings', '--newline'];
   const ffmpegBinary = getFfmpegBinary();
+  const platform = detectPlatform(url);
 
   if (ffmpegBinary) {
     args.push('--ffmpeg-location', path.dirname(ffmpegBinary));
   }
 
-  args.push('--extractor-args', 'youtube:player_client=android_vr,web');
+  if (platform === 'youtube') {
+    args.push('--extractor-args', 'youtube:player_client=android_vr,web');
+  }
 
   if (audioOnly) {
     args.push('-x');
