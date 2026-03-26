@@ -55,3 +55,4 @@ Server runs on `http://localhost:3000` by default.
 | `YTDLP_COOKIES` | Paste the exact contents of a `cookies.txt` (Netscape format) here to bypass age restrictions or download from private accounts. |
 | `YT_DLP_PATH` | Path to yt-dlp binary (auto-detected usually) |
 | `FFMPEG_PATH` | Path to ffmpeg binary (auto-detected usually) |
+# clipsave2
